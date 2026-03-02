@@ -485,10 +485,11 @@ Without that flag, recent JDKs emit warnings about restricted native access when
 ## Runtime architecture
 
 ```mermaid
+%%{init: { "flowchart": { "htmlLabels": true } }}%%
 flowchart LR
     subgraph JUnit["JUnit 5 Runtime"]
         A["TestStatisticsExtension"] --> B["CurrentTestExecution (thread-local)"]
-        T["Test code"] -->|"TestStats.recordInput(...)\nTestStats.recordArtifactPath(...)"| B
+        T["Test code"] -->|"TestStats.recordInput(...)<br/>TestStats.recordArtifactPath(...)"| B
     end
 
     subgraph Storage["Local Turso Storage"]
