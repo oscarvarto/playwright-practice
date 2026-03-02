@@ -1,0 +1,12 @@
+{
+  "printWidth": 150,
+  "singleAttributePerLine": false,
+  "tabWidth": 2,
+  "useTabs": false,
+  "bracketSpacing": true,
+  "semi": false,
+  "trailingComma": "es5",
+  "arrowParens": "always",
+  "xmlSelfClosingSpace": false,
+  "xmlWhitespaceSensitivity": "ignore"
+}
