@@ -1,3 +1,35 @@
+# Python
 __pycache__/
 *.py[cod]
+
+# Streamlit secrets
 .streamlit/secrets.toml
+
+# Gradle
+.gradle/
+
+# Eclipse
+.classpath
+.factorypath
+.project
+.settings/
+
+# Java build artifacts
+build/
+*.class
+
+# Pixi (local dev only — this branch is for Streamlit Cloud)
+python-analysis/
+
+# Parent project files that exist on disk but don't belong here
+src/
+docs/
+gradle/
+*.gradle.kts
+gradlew
+gradlew.bat
+*.properties
+*.json
+*.config
+*.md
+!README.md
