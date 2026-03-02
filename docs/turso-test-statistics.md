@@ -64,7 +64,8 @@ This design exists to answer questions that basic green/red test output cannot a
   strong signal of environmental sensitivity, resource contention, or non-deterministic waits.
 
   Formally, for durations $d_1, \dots, d_n$ stored in `test_execution.duration_ms` for a given `test_case_id`, the mean
-  runtime is:\ $$\mu_c = \frac{1}{n} \sum_{i=1}^{n} d_i$$
+  runtime is:\
+  $$\mu_c = \frac{1}{n} \sum_{i=1}^{n} d_i$$
 
   and the sample variance is:\
   $$s_c^2 = \frac{1}{n-1} \sum_{i=1}^{n} (d_i - \mu_c)^2$$
