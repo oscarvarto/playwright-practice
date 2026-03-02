@@ -17,6 +17,9 @@ linked below.
 
 ## Quick Start
 
+**NOTE**: Follow <https://github.com/tursodatabase/turso/blob/main/bindings/java/README.md> to deploy the Turso JDBC
+driver to your local maven repo first.
+
 Default build:
 
 ```zsh
