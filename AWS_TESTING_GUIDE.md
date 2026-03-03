@@ -38,6 +38,7 @@ Tests will then connect to your running LocalStack at `http://localhost:4566`.
 {
   "aws-testing": {
     "mode": "local",
+    "services": ["secretsmanager"],
     "local": {
       "endpoint": "http://localhost:4566",
       "region": "us-east-1"
@@ -46,10 +47,12 @@ Tests will then connect to your running LocalStack at `http://localhost:4566`.
       "image": "localstack/localstack:4.0",
       "region": "us-east-1"
     },
-    "secrets": {
-      "playwright-practice/github": {
-        "username": "test-user",
-        "token": "test-token-12345"
+    "secretsmanager": {
+      "secrets": {
+        "playwright-practice/github": {
+          "username": "test-user",
+          "token": "test-token-12345"
+        }
       }
     }
   }
@@ -63,6 +66,16 @@ Tests will then connect to your running LocalStack at `http://localhost:4566`.
 - `"local"` - Connect to existing LocalStack instance (fast, default)
 - `"testcontainers"` - Start fresh container per test (isolated)
 
+#### services
+
+An array of AWS service names to enable and provision. Each entry:
+
+1. Maps to a `LocalStackContainer.Service` for container startup
+2. Triggers the corresponding `ServiceProvisioner` to create test fixtures
+3. Looks up a matching config block by name (e.g. `"secretsmanager": { ... }`)
+
+Currently supported: `"secretsmanager"`
+
 #### local (used when mode = "local")
 
 - `endpoint` - LocalStack endpoint URL (default: <http://localhost:4566>)
@@ -73,18 +86,67 @@ Tests will then connect to your running LocalStack at `http://localhost:4566`.
 - `image` - Docker image for LocalStack (default: localstack/localstack:4.0)
 - `region` - AWS region (default: us-east-1)
 
-#### secrets
+#### Service-specific config blocks
 
-Define test secrets that will be automatically created in LocalStack:
+Each service listed in `"services"` can have its own config block at the top level.
+For example, `"secretsmanager"` contains the secrets to pre-create:
 
 ```json
-"secrets": {
-  "secret/name": {
-    "field1": "value1",
-    "field2": "value2"
+"secretsmanager": {
+  "secrets": {
+    "secret/name": {
+      "field1": "value1",
+      "field2": "value2"
+    }
   }
 }
 ```
+
+## Adding a New Service Provisioner
+
+To add support for a new AWS service (e.g. S3):
+
+1. **Create a provisioner class** in `oscarvarto.mx.aws`:
+
+   ```java
+   public class S3Provisioner implements ServiceProvisioner {
+
+       @Override
+       public LocalStackContainer.Service service() {
+           return LocalStackContainer.Service.S3;
+       }
+
+       @Override
+       public void provision(String endpoint, String region, Config serviceConfig) {
+           // Create buckets, upload objects, etc.
+       }
+   }
+   ```
+
+2. **Register it** in `ServiceProvisioner.forService()`:
+
+   ```java
+   static ServiceProvisioner forService(String serviceName) {
+       return switch (serviceName) {
+           case "secretsmanager" -> new SecretsManagerProvisioner();
+           case "s3"             -> new S3Provisioner();
+           default               -> null;
+       };
+   }
+   ```
+
+3. **Add config and enable** in `aws-testing.json`:
+
+   ```json
+   {
+     "aws-testing": {
+       "services": ["secretsmanager", "s3"],
+       "s3": {
+         "buckets": ["my-test-bucket"]
+       }
+     }
+   }
+   ```
 
 ## Modes Explained
 
@@ -105,7 +167,7 @@ localstack start  # Must be running
 **Behavior:**
 
 - Connects to `http://localhost:4566`
-- Creates test secrets on-the-fly
+- Provisions all configured services on-the-fly
 - Reuses your existing LocalStack auth token
 - **Fast** - no container startup time
 
@@ -124,8 +186,8 @@ localstack start  # Must be running
 
 **Behavior:**
 
-- Starts fresh LocalStack container per test class
-- Creates test secrets in the new container
+- Starts fresh LocalStack container with all configured services
+- Provisions test fixtures in the new container
 - **NO access** to your LocalStack auth token or cloud features
 - Container automatically stops after tests
 - **Slower** - container startup time (~10-30 seconds)
@@ -195,7 +257,7 @@ Example for Pro in Testcontainers (advanced):
 
 ```java
 localstack = new LocalStackContainer(DockerImageName.parse(image))
-    .withServices(LocalStackContainer.Service.SECRETSMANAGER)
+    .withServices(services)
     .withEnv("LOCALSTACK_AUTH_TOKEN", System.getenv("LOCALSTACK_AUTH_TOKEN"));
 ```
 
@@ -210,7 +272,7 @@ class MyAwsTest {
     @Test
     void testSecrets() {
         // Automatically uses configured mode
-        String secret = SecretsProvider.get("GITHUB_USER");
+        @Nullable String secret = SecretsProvider.get("GITHUB_USER");
         assertThat(secret).isEqualTo("test-user");
     }
 }
@@ -229,9 +291,8 @@ void checkConfiguration() {
         System.out.println("Using image: " + config.getTestcontainersImage());
     }
 
-    // Access test secrets configuration
-    Map<String, String> secrets = config.getTestSecrets();
-    String githubSecret = config.getTestSecret("playwright-practice/github");
+    // Access service-specific configuration
+    Config smConfig = config.getServiceConfig("secretsmanager");
 }
 ```
 
@@ -246,9 +307,14 @@ void setup() {
     String endpoint = config.isLocalMode()
         ? config.getLocalEndpoint()
         : LocalStackExtension.getContainer()
-            .getEndpointOverride(Service.SECRETSMANAGER).toString();
+            .getEndpoint().toString();
 
-    SecretsManagerClient client = createClient(endpoint);
+    SecretsManagerClient client = SecretsManagerClient.builder()
+        .endpointOverride(URI.create(endpoint))
+        .region(Region.of("us-east-1"))
+        .credentialsProvider(StaticCredentialsProvider.create(
+            AwsBasicCredentials.create("test", "test")))
+        .build();
 
     // Create custom secret
     client.createSecret(CreateSecretRequest.builder()
@@ -284,12 +350,12 @@ docker ps
 
 ### Secrets not found
 
-1. Check `aws-testing.json` has the secrets defined
+1. Check `aws-testing.json` has the secrets defined under `"secretsmanager"` → `"secrets"`
 2. Check the secret name matches between config and test
 3. For LOCAL mode, check secrets exist:
 
    ```bash
-   localstack aws secretsmanager list-secrets
+   awslocal secretsmanager list-secrets
    ```
 
 ### Auth token not working in Testcontainers
@@ -301,11 +367,12 @@ This is expected! Testcontainers creates isolated containers. To use Pro feature
 
 ### Mode not switching
 
-Configuration is cached. Reset between tests:
+Configuration and secrets are cached. Reset both between tests:
 
 ```java
 @AfterEach
 void tearDown() {
+    SecretsProvider.reset();
     AwsTestingConfig.reset();
 }
 ```
@@ -315,23 +382,37 @@ void tearDown() {
 ```mermaid
 flowchart TD
     test["Test Class<br/>@ExtendWith(LocalStackExtension.class)"]
+    config["AwsTestingConfig<br/>reads aws-testing.json"]
     localMode["LOCAL Mode"]
     testcontainersMode["TESTCONTAINERS Mode"]
+    provisioners["ServiceProvisioners<br/>(per service in config)"]
+    smProv["SecretsManagerProvisioner"]
     localstack["Your LocalStack<br/>(localhost)"]
     container["Fresh Docker Container<br/>(ephemeral)"]
+    sp["SecretsProvider<br/>env-var-first resolution"]
 
-    test --> localMode
-    test --> testcontainersMode
-    localMode --> localstack
-    testcontainersMode --> container
+    test --> config
+    config --> localMode
+    config --> testcontainersMode
+    localMode --> provisioners
+    testcontainersMode --> provisioners
+    provisioners --> smProv
+    smProv --> localstack
+    smProv --> container
+    test --> sp
+    sp -->|fallback| localstack
+    sp -->|fallback| container
 ```
 
 ## Files Overview
 
 - `src/test/resources/aws-testing.json` - Main configuration
-- `AwsTestingConfig.java` - Configuration reader
-- `LocalStackExtension.java` - JUnit 5 extension
-- `SecretsProviderAwsTestingTest.java` - Example tests
+- `oscarvarto.mx.aws.AwsTestingConfig` - Configuration reader (services list, service-specific config)
+- `oscarvarto.mx.aws.SecretsProvider` - Env-var-first secret resolution with AWS Secrets Manager fallback
+- `oscarvarto.mx.aws.LocalStackExtension` - JUnit 5 extension (service-driven provisioning loop)
+- `oscarvarto.mx.aws.ServiceProvisioner` - Strategy interface for per-service setup
+- `oscarvarto.mx.aws.SecretsManagerProvisioner` - Provisions test secrets in LocalStack
+- `oscarvarto.mx.aws.SecretsProviderAwsTestingTest` - Integration tests
 
 ## References
 

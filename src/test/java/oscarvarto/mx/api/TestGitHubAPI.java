@@ -21,7 +21,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import oscarvarto.mx.secrets.SecretsProvider;
+import oscarvarto.mx.aws.SecretsProvider;
 
 import static com.microsoft.playwright.assertions.PlaywrightAssertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
@@ -60,7 +60,7 @@ public class TestGitHubAPI extends PlaywrightApiTest {
     /// - Base URL: `https://api.github.com`
     /// - `Accept: application/vnd.github.v3+json` per
     ///   [GitHub API guidelines](https://docs.github.com/en/rest)
-    /// - `Authorization: token <PAT>` using the `GITHUB_API_TOKEN` environment variable
+    /// - `Authorization: token <PAT>` using the `GITHUB_API_TOKEN` secret resolved by [SecretsProvider]
     public static class GitHubApiOptions implements OptionsFactory {
         @Override
         public Options getOptions() {

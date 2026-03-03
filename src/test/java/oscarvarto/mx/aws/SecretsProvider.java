@@ -1,4 +1,4 @@
-package oscarvarto.mx.secrets;
+package oscarvarto.mx.aws;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

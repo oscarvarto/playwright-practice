@@ -1,5 +1,6 @@
-package oscarvarto.mx.secrets;
+package oscarvarto.mx.aws;
 
+import com.typesafe.config.Config;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,8 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 ///
 /// ## Test Data
 ///
-/// Test secrets are defined in `aws-testing.json` and automatically created
-/// by the extension before tests run.
+/// Test secrets are defined in `aws-testing.json` under the `"secretsmanager"`
+/// service config and automatically created by the extension before tests run.
 ///
 /// @see LocalStackExtension
 /// @see AwsTestingConfig
@@ -147,10 +148,15 @@ class SecretsProviderAwsTestingTest {
             assertThat(config.getTestcontainersImage()).isNotNull();
         }
 
-        // Verify test secrets are configured
-        assertThat(config.hasTestSecret("playwright-practice/github")).isTrue();
-        assertThat(config.getTestSecret("playwright-practice/github"))
-                .contains("test-user")
-                .contains("test-token-12345");
+        // Verify secretsmanager service is configured
+        Config smConfig = config.getServiceConfig("secretsmanager");
+        assertThat(smConfig.hasPath("secrets")).isTrue();
+
+        Config secretsConfig = smConfig.getConfig("secrets");
+        assertThat(secretsConfig.hasPath("playwright-practice/github")).isTrue();
+
+        Config githubSecret = secretsConfig.getConfig("playwright-practice/github");
+        assertThat(githubSecret.getString("username")).isEqualTo("test-user");
+        assertThat(githubSecret.getString("token")).isEqualTo("test-token-12345");
     }
 }

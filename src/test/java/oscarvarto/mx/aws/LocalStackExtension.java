@@ -1,6 +1,9 @@
-package oscarvarto.mx.secrets;
+package oscarvarto.mx.aws;
 
-import java.net.URI;
+import com.typesafe.config.Config;
+import java.util.List;
+import java.util.Objects;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -8,12 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.localstack.LocalStackContainer;
 import org.testcontainers.utility.DockerImageName;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
-import software.amazon.awssdk.services.secretsmanager.model.CreateSecretRequest;
-import software.amazon.awssdk.services.secretsmanager.model.ResourceExistsException;
 
 /// JUnit 5 extension that manages AWS testing infrastructure.
 ///
@@ -25,13 +22,17 @@ import software.amazon.awssdk.services.secretsmanager.model.ResourceExistsExcept
 /// 2. **TESTCONTAINERS mode**: Starts a fresh LocalStack Docker container using
 ///    Testcontainers. Provides isolation for CI/CD.
 ///
+/// Services to start and provision are driven by the `"services"` array in the config.
+/// Each service is resolved to a [ServiceProvisioner] that sets up test fixtures.
+///
 /// ## Configuration
 ///
-/// Set mode in `src/test/resources/aws-testing.json`:
+/// Set mode and services in `src/test/resources/aws-testing.json`:
 /// ```json
 /// {
 ///   "aws-testing": {
-///     "mode": "local"
+///     "mode": "local",
+///     "services": ["secretsmanager"]
 ///   }
 /// }
 /// ```
@@ -43,14 +44,14 @@ import software.amazon.awssdk.services.secretsmanager.model.ResourceExistsExcept
 /// class MyTest {
 ///     @Test
 ///     void test() {
-///         // Extension automatically configured SecretsProvider
+///         // Extension automatically provisioned services
 ///         String secret = SecretsProvider.get("GITHUB_USER");
 ///     }
 /// }
 /// ```
 ///
 /// @see AwsTestingConfig
-/// @see SecretsProvider
+/// @see ServiceProvisioner
 public class LocalStackExtension implements BeforeAllCallback, AfterAllCallback {
 
     private static final Logger LOG = LoggerFactory.getLogger(LocalStackExtension.class);
@@ -84,16 +85,15 @@ public class LocalStackExtension implements BeforeAllCallback, AfterAllCallback 
         String endpoint = config.getLocalEndpoint();
         String region = config.getLocalRegion();
 
-        LOG.info("Configuring SecretsProvider for LocalStack at: {} (region: {})", endpoint, region);
+        LOG.info("Configuring for LocalStack at: {} (region: {})", endpoint, region);
 
         // Set system property for SecretsProvider to use LocalStack
         System.setProperty("LOCALSTACK_ENDPOINT", endpoint);
-        System.setProperty("LOCALSTACK_REGION", region);
 
         store.put(ENDPOINT_KEY, endpoint);
 
-        // Create test secrets in the running LocalStack
-        createTestSecretsInLocalStack(endpoint, region, config);
+        // Provision all configured services
+        provisionServices(config, endpoint, region);
     }
 
     private void setupTestcontainersMode(AwsTestingConfig config, ExtensionContext.Store store) {
@@ -102,53 +102,39 @@ public class LocalStackExtension implements BeforeAllCallback, AfterAllCallback 
 
         LOG.info("Starting LocalStack container with image: {}", image);
 
-        localstack = new LocalStackContainer(DockerImageName.parse(image))
-                .withServices(LocalStackContainer.Service.SECRETSMANAGER);
+        List<String> serviceNames = config.getServices();
+        LocalStackContainer.Service[] services = serviceNames.stream()
+                .map(ServiceProvisioner::forService)
+                .filter(Objects::nonNull)
+                .map(ServiceProvisioner::service)
+                .toArray(LocalStackContainer.Service[]::new);
+
+        localstack = new LocalStackContainer(DockerImageName.parse(image)).withServices(services);
 
         localstack.start();
 
-        String endpoint = localstack
-                .getEndpointOverride(LocalStackContainer.Service.SECRETSMANAGER)
-                .toString();
+        String endpoint = localstack.getEndpoint().toString();
 
         LOG.info("LocalStack container started at: {} (region: {})", endpoint, region);
 
         // Set system property for SecretsProvider
         System.setProperty("LOCALSTACK_ENDPOINT", endpoint);
-        System.setProperty("LOCALSTACK_REGION", region);
 
         store.put(ENDPOINT_KEY, endpoint);
 
-        // Create test secrets in the container
-        createTestSecretsInLocalStack(endpoint, region, config);
+        // Provision all configured services
+        provisionServices(config, endpoint, region);
     }
 
-    private void createTestSecretsInLocalStack(String endpoint, String region, AwsTestingConfig config) {
-        LOG.info("Creating test secrets in LocalStack...");
-
-        SecretsManagerClient client = SecretsManagerClient.builder()
-                .endpointOverride(URI.create(endpoint))
-                .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
-                .build();
-
-        try {
-            for (var entry : config.getTestSecrets().entrySet()) {
-                String secretName = entry.getKey();
-                String secretValue = entry.getValue();
-
-                try {
-                    client.createSecret(CreateSecretRequest.builder()
-                            .name(secretName)
-                            .secretString(secretValue)
-                            .build());
-                    LOG.info("Created test secret: {}", secretName);
-                } catch (ResourceExistsException e) {
-                    LOG.info("Test secret already exists: {}", secretName);
-                }
+    private void provisionServices(AwsTestingConfig config, String endpoint, String region) {
+        for (String name : config.getServices()) {
+            ServiceProvisioner provisioner = ServiceProvisioner.forService(name);
+            if (provisioner != null) {
+                Config svcConfig = config.getServiceConfig(name);
+                provisioner.provision(endpoint, region, svcConfig);
+            } else {
+                LOG.warn("No provisioner found for service: {}", name);
             }
-        } finally {
-            client.close();
         }
     }
 
@@ -169,7 +155,6 @@ public class LocalStackExtension implements BeforeAllCallback, AfterAllCallback 
             }
 
             System.clearProperty("LOCALSTACK_ENDPOINT");
-            System.clearProperty("LOCALSTACK_REGION");
             LOG.info("Cleaned up LocalStack configuration");
         }
     }
@@ -178,14 +163,14 @@ public class LocalStackExtension implements BeforeAllCallback, AfterAllCallback 
     ///
     /// @param context the extension context
     /// @return the endpoint URL, or null if not initialized
-    public static String getEndpoint(ExtensionContext context) {
+    public static @Nullable String getEndpoint(ExtensionContext context) {
         return getStore(context).get(ENDPOINT_KEY, String.class);
     }
 
     /// Gets the LocalStack container instance (only available in testcontainers mode).
     ///
     /// @return the container instance, or null if not started or in local mode
-    public static LocalStackContainer getContainer() {
+    public static @Nullable LocalStackContainer getContainer() {
         return localstack;
     }
 

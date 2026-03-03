@@ -1,10 +1,8 @@
-package oscarvarto.mx.secrets;
+package oscarvarto.mx.aws;
 
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +19,7 @@ import org.slf4j.LoggerFactory;
 /// {
 ///   "aws-testing": {
 ///     "mode": "local",
+///     "services": ["secretsmanager"],
 ///     "local": {
 ///       "endpoint": "http://localhost:4566",
 ///       "region": "us-east-1"
@@ -29,10 +28,12 @@ import org.slf4j.LoggerFactory;
 ///       "image": "localstack/localstack:4.0",
 ///       "region": "us-east-1"
 ///     },
-///     "secrets": {
-///       "playwright-practice/github": {
-///         "username": "test-user",
-///         "token": "test-token-12345"
+///     "secretsmanager": {
+///       "secrets": {
+///         "playwright-practice/github": {
+///           "username": "test-user",
+///           "token": "test-token-12345"
+///         }
 ///       }
 ///     }
 ///   }
@@ -49,6 +50,12 @@ import org.slf4j.LoggerFactory;
 /// } else {
 ///     String image = config.getTestcontainersImage();
 /// }
+///
+/// // Get the list of services to provision
+/// List<String> services = config.getServices();
+///
+/// // Get service-specific config
+/// Config smConfig = config.getServiceConfig("secretsmanager");
 /// ```
 ///
 /// @see #getInstance()
@@ -154,60 +161,27 @@ public class AwsTestingConfig {
         return config.getString("testcontainers.region");
     }
 
-    /// Returns all configured test secrets.
+    /// Returns the list of AWS service names to provision.
     ///
-    /// @return map of secret names to their JSON content
-    public Map<String, String> getTestSecrets() {
-        Map<String, String> secrets = new HashMap<>();
-
-        if (!config.hasPath("secrets")) {
-            LOG.warn("No test secrets configured in aws-testing.json");
-            return secrets;
-        }
-
-        Config secretsConfig = config.getConfig("secrets");
-        Set<String> secretNames = secretsConfig.root().keySet();
-
-        for (String secretName : secretNames) {
-            Config secretConfig = secretsConfig.getConfig(secretName);
-            StringBuilder jsonBuilder = new StringBuilder();
-            jsonBuilder.append("{");
-
-            Set<String> fields = secretConfig.root().keySet();
-            boolean first = true;
-            for (String field : fields) {
-                if (!first) {
-                    jsonBuilder.append(",");
-                }
-                first = false;
-                String value = secretConfig.getString(field);
-                jsonBuilder
-                        .append("\"")
-                        .append(field)
-                        .append("\":\"")
-                        .append(value)
-                        .append("\"");
-            }
-
-            jsonBuilder.append("}");
-            String json = jsonBuilder.toString();
-            secrets.put(secretName, json);
-            LOG.debug("Configured test secret: {} = {}", secretName, json);
-        }
-
-        return secrets;
+    /// Reads the `"services"` array from `aws-testing.json`.
+    ///
+    /// @return list of service names (e.g. `["secretsmanager"]`)
+    public List<String> getServices() {
+        return config.getStringList("services");
     }
 
-    /// Returns the JSON content for a specific test secret.
+    /// Returns the service-specific configuration block.
     ///
-    /// @param secretName the name of the secret
-    /// @return the JSON content, or null if not found
-    public String getTestSecret(String secretName) {
-        return getTestSecrets().get(secretName);
-    }
-
-    /// Returns true if the specified secret is configured.
-    public boolean hasTestSecret(String secretName) {
-        return getTestSecrets().containsKey(secretName);
+    /// For example, `getServiceConfig("secretsmanager")` returns the
+    /// `"secretsmanager"` sub-object from `aws-testing.json`, which contains
+    /// the `"secrets"` definitions for that service.
+    ///
+    /// @param serviceName the service name (e.g. `"secretsmanager"`)
+    /// @return the service-specific config, or an empty config if not present
+    public Config getServiceConfig(String serviceName) {
+        if (config.hasPath(serviceName)) {
+            return config.getConfig(serviceName);
+        }
+        return ConfigFactory.empty();
     }
 }
