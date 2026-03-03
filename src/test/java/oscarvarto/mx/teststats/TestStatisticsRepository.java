@@ -436,6 +436,5 @@ final class TestStatisticsRepository {
             throwable.printStackTrace(new PrintWriter(writer));
             return writer.toString();
         }
-
     }
 }
