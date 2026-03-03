@@ -5,6 +5,7 @@ import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.junit.Options;
 import com.typesafe.config.Config;
+import com.typesafe.config.ConfigException;
 import com.typesafe.config.ConfigFactory;
 import org.junit.jupiter.api.TestInstance;
 
@@ -28,7 +29,7 @@ import org.junit.jupiter.api.TestInstance;
 ///
 /// ## Scope of `storageState()`
 ///
-/// `storageState()` captures **cookies, local storage, and IndexedDB** — which covers
+/// `storageState()` captures **cookies and localStorage** — which covers
 /// the vast majority of authentication models. It does **not** capture **session storage**
 /// (`window.sessionStorage`), which is domain-specific and not persisted across page loads.
 /// If your app relies on session storage for auth, you will need to save/restore it manually
@@ -73,7 +74,19 @@ import org.junit.jupiter.api.TestInstance;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class PlaywrightApiTest {
 
-    private static final Config PW_CONFIG = ConfigFactory.load("playwright").getConfig("playwright");
+    private static final Config PW_CONFIG = loadPlaywrightConfig();
+
+    private static Config loadPlaywrightConfig() {
+        Config root = ConfigFactory.load("playwright");
+        try {
+            return root.getConfig("playwright");
+        } catch (ConfigException.Missing e) {
+            throw new IllegalStateException(
+                    "playwright.json must contain a top-level \"playwright\" namespace, "
+                            + "e.g. { \"playwright\": { \"browser\": \"chromium\" } }",
+                    e);
+        }
+    }
 
     /// Builds an [Options] instance pre-configured with browser settings from
     /// `playwright.json`.

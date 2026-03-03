@@ -16,6 +16,7 @@ import com.microsoft.playwright.options.RequestOptions;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @UsePlaywright(TestGitHubAPI.GitHubApiOptions.class)
 @EnabledIfSystemProperty(named = "playwright.github.integration.enabled", matches = "true")
 public class TestGitHubAPI extends PlaywrightApiTest {
-    private static final String REPO = "test-repo-2";
+    private final String REPO = "test-repo-" + UUID.randomUUID().toString().substring(0, 8);
 
     /// [OptionsFactory] that configures the [APIRequestContext] for the GitHub REST API.
     ///
@@ -76,9 +77,14 @@ public class TestGitHubAPI extends PlaywrightApiTest {
 
     /// Creates the test repository on GitHub before all tests run.
     ///
-    /// Uses `POST /user/repos` to create a repository named [#REPO].
+    /// Deletes any stale repo left by a previous crashed run, then uses
+    /// `POST /user/repos` to create a repository whose name is stored in [#REPO]
+    /// (includes a random suffix to avoid CI collisions).
     @BeforeAll
     void beforeAll(APIRequestContext request) {
+        // Clean up stale repo from a previous crashed run (ignore 404/failure)
+        request.delete("/repos/" + githubUser() + "/" + REPO);
+
         APIResponse newRepo =
                 request.post("/user/repos", RequestOptions.create().setData(Collections.singletonMap("name", REPO)));
         assertTrue(newRepo.ok(), newRepo.text());
@@ -90,7 +96,7 @@ public class TestGitHubAPI extends PlaywrightApiTest {
     @AfterAll
     void afterAll(APIRequestContext request) {
         APIResponse deletedRepo = request.delete("/repos/" + githubUser() + "/" + REPO);
-        assertTrue(deletedRepo.ok());
+        assertTrue(deletedRepo.ok(), deletedRepo.text());
     }
 
     /// Creates a bug report issue via the GitHub API and verifies it appears in the
@@ -103,22 +109,12 @@ public class TestGitHubAPI extends PlaywrightApiTest {
         APIResponse newIssue = request.post(
                 "/repos/" + githubUser() + "/" + REPO + "/issues",
                 RequestOptions.create().setData(data));
-        assertTrue(newIssue.ok());
+        assertTrue(newIssue.ok(), newIssue.text());
 
         APIResponse issues = request.get("/repos/" + githubUser() + "/" + REPO + "/issues");
-        assertTrue(issues.ok());
+        assertTrue(issues.ok(), issues.text());
         JsonArray json = new Gson().fromJson(issues.text(), JsonArray.class);
-        JsonObject issue = null;
-        for (JsonElement item : json) {
-            JsonObject itemObj = item.getAsJsonObject();
-            if (!itemObj.has("title")) {
-                continue;
-            }
-            if ("[Bug] report 1".equals(itemObj.get("title").getAsString())) {
-                issue = itemObj;
-                break;
-            }
-        }
+        JsonObject issue = findIssueByTitle(json, "[Bug] report 1");
         assertNotNull(issue);
         assertEquals("Bug description", issue.get("body").getAsString(), issue.toString());
     }
@@ -133,22 +129,12 @@ public class TestGitHubAPI extends PlaywrightApiTest {
         APIResponse newIssue = request.post(
                 "/repos/" + githubUser() + "/" + REPO + "/issues",
                 RequestOptions.create().setData(data));
-        assertTrue(newIssue.ok());
+        assertTrue(newIssue.ok(), newIssue.text());
 
         APIResponse issues = request.get("/repos/" + githubUser() + "/" + REPO + "/issues");
-        assertTrue(issues.ok());
+        assertTrue(issues.ok(), issues.text());
         JsonArray json = new Gson().fromJson(issues.text(), JsonArray.class);
-        JsonObject issue = null;
-        for (JsonElement item : json) {
-            JsonObject itemObj = item.getAsJsonObject();
-            if (!itemObj.has("title")) {
-                continue;
-            }
-            if ("[Feature] request 1".equals(itemObj.get("title").getAsString())) {
-                issue = itemObj;
-                break;
-            }
-        }
+        JsonObject issue = findIssueByTitle(json, "[Feature] request 1");
         assertNotNull(issue);
         assertEquals("Feature description", issue.get("body").getAsString(), issue.toString());
     }
@@ -164,16 +150,26 @@ public class TestGitHubAPI extends PlaywrightApiTest {
     @Test
     void lastCreatedIssueShouldBeFirstInTheList(APIRequestContext request, Page page) {
         Map<String, String> data = new HashMap<>();
-        data.put("title", "[Feature] request 1");
+        data.put("title", "[Feature] request 2");
         data.put("body", "Feature description");
         APIResponse newIssue = request.post(
                 "/repos/" + githubUser() + "/" + REPO + "/issues",
                 RequestOptions.create().setData(data));
-        assertTrue(newIssue.ok());
+        assertTrue(newIssue.ok(), newIssue.text());
 
         page.navigate("https://github.com/" + githubUser() + "/" + REPO + "/issues");
         Locator firstIssue = page.locator("a[data-hovercard-type='issue']").first();
-        assertThat(firstIssue).hasText("[Feature] request 1");
+        assertThat(firstIssue).hasText("[Feature] request 2");
+    }
+
+    private static JsonObject findIssueByTitle(JsonArray issues, String title) {
+        for (JsonElement item : issues) {
+            JsonObject obj = item.getAsJsonObject();
+            if (obj.has("title") && title.equals(obj.get("title").getAsString())) {
+                return obj;
+            }
+        }
+        return null;
     }
 
     private static String githubUser() {

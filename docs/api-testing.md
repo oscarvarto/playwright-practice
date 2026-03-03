@@ -22,7 +22,6 @@ classDiagram
         +launchOptions
         +baseUrl
         +setApiRequestOptions() Options
-        +setContextOptions() Options
     }
 
     class PlaywrightApiTest {
@@ -43,7 +42,7 @@ classDiagram
 
     class SecretsProvider {
         <<utility>>
-        +get(key)$ String?
+        +get(key)$ String
         +require(key)$ String
         -fetchSecret(secretName)$ String
         -extractField(json, field)$ String?
@@ -92,6 +91,14 @@ It is skipped unless you explicitly enable it with:
 
 This keeps `./gradlew build` safe by default on machines that do not have GitHub credentials configured.
 
+### Browser configuration file
+
+The `playwright.json` file lives on the test classpath (typically `src/test/resources/playwright.json`):
+
+```json
+{ "playwright": { "browser": "chromium", "headless": true } }
+```
+
 ## How `@UsePlaywright` works
 
 The `@UsePlaywright` annotation is a meta-annotation that registers six JUnit 5 extensions, each responsible for one
@@ -125,6 +132,9 @@ sequenceDiagram
     JUnit->>Opts: Load OptionsFactory
     Opts->>Opts: GitHubApiOptions.getOptions()
     Note right of Opts: Headers, base URL
+
+    JUnit->>PwExt: Create Playwright instance
+    JUnit->>BrExt: Create Browser instance
 
     JUnit->>Test: @BeforeAll beforeAll(request)
     ApiExt->>ApiExt: Resolve APIRequestContext
@@ -166,7 +176,7 @@ session to a browser context for UI assertions.
 flowchart TD
     subgraph API["API Layer"]
         A[APIRequestContext] -->|POST /login| B[Authenticated session]
-        B -->|storageState| C["Storage state<br/>(cookies, tokens)"]
+        B -->|storageState| C["Storage state<br/>(cookies, localStorage)"]
     end
 
     subgraph Bridge["State Transfer"]
