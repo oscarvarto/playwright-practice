@@ -2,15 +2,11 @@ package oscarvarto.mx.teststats;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
-import java.util.HexFormat;
 
 /// Central write-side gateway for the test statistics schema.
 ///
@@ -175,7 +171,6 @@ final class TestStatisticsRepository {
             String frameworkStatus,
             Throwable throwable,
             String threadName) {
-        execution.ensureFinished();
         FailureDetails failureDetails = FailureDetails.fromThrowable(throwable);
         try (Connection connection = dataSourceFactory.createDataSource().getConnection()) {
             connection.setAutoCommit(false);
@@ -382,11 +377,17 @@ final class TestStatisticsRepository {
     }
 
     /// Failure diagnostics as stored in the execution row.
+    ///
+    /// The preferred stack frame format is `ClassName#methodName` (line numbers are intentionally
+    /// omitted so that fingerprints remain stable across refactors that shift line numbers).
     private record FailureDetails(
             String exceptionClass, String exceptionMessage, String exceptionStacktrace, String failureFingerprint) {
 
         /// Builds persisted failure details, including a fingerprint suitable for grouping repeated
         /// failures across runs.
+        ///
+        /// The fingerprint hash input is `exceptionClass|preferredFrame|normalizedMessage`, where
+        /// `preferredFrame` uses the format `ClassName#methodName` (no line number).
         static FailureDetails fromThrowable(Throwable throwable) {
             if (throwable == null) {
                 return new FailureDetails(null, null, null, null);
@@ -397,7 +398,7 @@ final class TestStatisticsRepository {
             String preferredFrame = preferredFrame(throwable);
             String fingerprintSource = exceptionClass + "|" + preferredFrame + "|" + exceptionMessage;
             return new FailureDetails(
-                    exceptionClass, exceptionMessage, exceptionStacktrace, sha256Hex(fingerprintSource));
+                    exceptionClass, exceptionMessage, exceptionStacktrace, DigestUtils.sha256Hex(fingerprintSource));
         }
 
         private static String normalizeMessage(String message) {
@@ -427,7 +428,7 @@ final class TestStatisticsRepository {
         }
 
         private static String formatFrame(StackTraceElement element) {
-            return element.getClassName() + "#" + element.getMethodName() + ":" + element.getLineNumber();
+            return element.getClassName() + "#" + element.getMethodName();
         }
 
         private static String stacktraceOf(Throwable throwable) {
@@ -436,13 +437,5 @@ final class TestStatisticsRepository {
             return writer.toString();
         }
 
-        private static String sha256Hex(String value) {
-            try {
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-            } catch (NoSuchAlgorithmException e) {
-                throw new IllegalStateException("SHA-256 is not available.", e);
-            }
-        }
     }
 }

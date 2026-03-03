@@ -15,6 +15,10 @@ streamlit = "*"
 plotly = "*"
 pandas = "*"
 watchdog = "*"
+ruff = "*"
 
 [tasks]
 app = "streamlit run app.py"
+fmt = "ruff format ."
+lint = "ruff check --fix ."
+check = "ruff format --check . && ruff check ."

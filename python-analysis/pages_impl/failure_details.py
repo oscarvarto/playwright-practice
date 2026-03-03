@@ -55,7 +55,8 @@ def render() -> None:
     exec_ids = recent_failures["execution_id"].to_list()
     # Build labels for the selectbox
     labels = [
-        f"{row['class_name'].rsplit('.', 1)[-1]}.{row['method_name']} — {row['finished_at_utc']}"
+        f"{row['class_name'].rsplit('.', 1)[-1]}.{row['method_name']}"
+        f" — {row['finished_at_utc']} [{row['execution_id'][:8]}]"
         for row in recent_failures.iter_rows(named=True)
     ]
     label_to_id = dict(zip(labels, exec_ids, strict=False))

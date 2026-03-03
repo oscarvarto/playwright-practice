@@ -42,9 +42,7 @@ def render() -> None:
 
     # Summary metrics
     total_cases = quality.height
-    cases_with_failures = quality.filter(
-        quality["fail_rate"].is_not_null() & (quality["fail_rate"] > 0)
-    ).height
+    cases_with_failures = quality.filter(quality["fail_rate"].is_not_null() & (quality["fail_rate"] > 0)).height
 
     c1, c2 = st.columns(2)
     c1.metric("Tracked test cases", total_cases)

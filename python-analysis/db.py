@@ -14,13 +14,7 @@ from pathlib import Path
 import polars as pl
 import turso
 
-_DEFAULT_DB_PATH: Path = (
-    Path(__file__).resolve().parent.parent
-    / "src"
-    / "test"
-    / "resources"
-    / "test-statistics.db"
-)
+_DEFAULT_DB_PATH: Path = Path(__file__).resolve().parent.parent / "src" / "test" / "resources" / "test-statistics.db"
 """Fallback database path, relative to the repository root."""
 
 
@@ -69,8 +63,6 @@ def query_frame(sql: str, params: tuple = ()) -> pl.DataFrame:
         cur.execute(sql, params)
         columns = [column[0] for column in cur.description]
         rows = cur.fetchall()
-        return pl.DataFrame(
-            [dict(zip(columns, row, strict=False)) for row in rows]
-        )
+        return pl.DataFrame([dict(zip(columns, row, strict=False)) for row in rows])
     finally:
         conn.close()

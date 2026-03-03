@@ -42,7 +42,7 @@ class TestStatisticsExtensionIntegrationTest {
         assertThat(summary.getSummary().getTestsSucceededCount()).isEqualTo(1);
         assertThat(Files.exists(databasePath)).isTrue();
         assertThat(queryForLong(databasePath, "SELECT COUNT(*) FROM flyway_schema_history"))
-                .isEqualTo(2);
+                .isEqualTo(3);
         assertThat(queryForLong(
                         databasePath, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name LIKE 'v_%'"))
                 .isGreaterThanOrEqualTo(6);

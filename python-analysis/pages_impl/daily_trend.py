@@ -6,8 +6,8 @@ pass/fail rate line chart.  The second section joins ``test_execution`` with
 ``local`` vs ``ci``).
 """
 
-import polars as pl
 import plotly.express as px
+import polars as pl
 import streamlit as st
 
 from db import query_frame

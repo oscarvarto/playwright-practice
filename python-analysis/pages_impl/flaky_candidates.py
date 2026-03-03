@@ -7,13 +7,13 @@ instability.
 
 .. note::
 
-   The database view ``v_flaky_candidates`` uses the ``LAG`` window
-   function, which ``pyturso`` does not support.  This module therefore
+   The database view ``v_flaky_candidates`` uses a CTE with a correlated
+   subquery, which ``pyturso`` does not support.  This module therefore
    queries raw tables and replicates the view logic in Polars.
 """
 
-import polars as pl
 import plotly.express as px
+import polars as pl
 import streamlit as st
 
 from db import query_frame
@@ -25,8 +25,8 @@ def _build_flaky_frame() -> pl.DataFrame:
     The computation mirrors ``v_flaky_candidates``:
 
     1. Fetch every execution's status ordered chronologically per test case.
-    2. Use :meth:`polars.Expr.shift` (equivalent to SQL ``LAG``) to obtain
-       the previous status within each test-case partition.
+    2. Use :meth:`polars.Expr.shift` to obtain the previous status within
+       each test-case partition (replaces the correlated subquery in the view).
     3. Count passes, failures, and status flips per test case.
     4. Determine the latest status per test case.
     5. Filter to test cases that have *both* passes and failures.
@@ -58,12 +58,7 @@ def _build_flaky_frame() -> pl.DataFrame:
         return pl.DataFrame()
 
     # Previous status per test case (LAG equivalent)
-    with_prev = raw.with_columns(
-        pl.col("canonical_status")
-        .shift(1)
-        .over("test_case_id")
-        .alias("previous_status")
-    )
+    with_prev = raw.with_columns(pl.col("canonical_status").shift(1).over("test_case_id").alias("previous_status"))
 
     # Aggregate per test case
     agg = (
@@ -71,10 +66,7 @@ def _build_flaky_frame() -> pl.DataFrame:
         .agg(
             (pl.col("canonical_status") == "PASSED").sum().alias("pass_count"),
             (pl.col("canonical_status") == "FAILED").sum().alias("fail_count"),
-            (
-                pl.col("previous_status").is_not_null()
-                & (pl.col("previous_status") != pl.col("canonical_status"))
-            )
+            (pl.col("previous_status").is_not_null() & (pl.col("previous_status") != pl.col("canonical_status")))
             .sum()
             .alias("flip_count"),
         )
@@ -94,20 +86,23 @@ def _build_flaky_frame() -> pl.DataFrame:
 
     result = agg.join(latest, on="test_case_id", how="left")
 
-    result = result.with_columns(
-        (
-            pl.col("fail_count").cast(pl.Float64)
-            / (pl.col("pass_count") + pl.col("fail_count"))
-        ).alias("historical_fail_rate")
-    ).select(
-        "class_name",
-        "method_name",
-        "pass_count",
-        "fail_count",
-        "flip_count",
-        "latest_status",
-        "historical_fail_rate",
-    ).sort("flip_count", "fail_count", descending=[True, True])
+    result = (
+        result.with_columns(
+            (pl.col("fail_count").cast(pl.Float64) / (pl.col("pass_count") + pl.col("fail_count"))).alias(
+                "historical_fail_rate"
+            )
+        )
+        .select(
+            "class_name",
+            "method_name",
+            "pass_count",
+            "fail_count",
+            "flip_count",
+            "latest_status",
+            "historical_fail_rate",
+        )
+        .sort("flip_count", "fail_count", descending=[True, True])
+    )
 
     return result
 

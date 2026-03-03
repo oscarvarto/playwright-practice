@@ -67,3 +67,27 @@ Beyond the type system:
   "test code in TypeScript" disappears.
 - **Playwright's Java API is a first-class binding**, not a community wrapper. It is maintained by Microsoft, ships with
   the same browser versions, and supports the same features (auto-waits, trace viewer, codegen) as the Node.js API.
+
+## Why Turso / SQLite for test statistics?
+
+The test statistics pipeline stores execution data in a local Turso database file (`test-statistics.db`). A natural
+question is whether a "real" database like PostgreSQL would be a better fit. For this use case, it would be overkill.
+
+**The data volume is inherently bounded.** Test statistics grow as *(number of test cases) x (number of runs)*. Even a
+large suite running daily in CI produces tens of thousands of rows over months — trivial for SQLite.
+
+**Zero infrastructure is the killer feature.** The current pipeline is:
+
+1. Run `./gradlew test` — data appears in a file.
+2. Run `pixi run app` — the Streamlit dashboard reads that file.
+
+No server process, no Docker container, no credentials, no network configuration. PostgreSQL would replace that with:
+install and run Postgres, create a database, manage credentials, configure JDBC connection strings on the Java side and
+connection parameters on the Python side, provision an instance in CI, and handle migrations through a server-aware
+tool. Every developer and every CI runner would need a running PostgreSQL instance. That is a lot of operational
+friction for a testing support tool.
+
+**If a shared, always-on dashboard becomes necessary** — for example, a team-wide view aggregating CI runs from all
+branches — Turso offers a cloud-hosted mode with HTTP access that bridges that gap without switching database engines.
+PostgreSQL remains an option at that point, but the migration cost only makes sense once the single-file model is
+genuinely outgrown.

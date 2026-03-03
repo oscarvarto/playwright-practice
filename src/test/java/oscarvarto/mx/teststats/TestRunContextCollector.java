@@ -10,10 +10,7 @@ import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -93,7 +90,7 @@ final class TestRunContextCollector {
         String uniqueId = context.getUniqueId();
         Class<?> testClass = context.getTestClass().orElse(null);
         return new TestCaseDetails(
-                sha256Hex("junit5|" + uniqueId),
+                DigestUtils.sha256Hex("junit5|" + uniqueId),
                 "junit5",
                 engineId(uniqueId),
                 uniqueId,
@@ -213,15 +210,6 @@ final class TestRunContextCollector {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
-    }
-
-    private String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is not available.", e);
-        }
     }
 
     /// Effective Playwright browser settings attached to a `test_run`.

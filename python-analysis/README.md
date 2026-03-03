@@ -52,15 +52,15 @@ The Turso file-based database supports only one writer at a time. If another pro
 
 ## Dashboard pages
 
-| Page                     | Data source                                                | What it shows                                                               |
-| ------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **Run Summary**          | `v_run_summary`                                            | KPI cards for the latest run, full run table, stacked bar chart of outcomes |
-| **Test Case Quality**    | `v_test_case_quality`                                      | Per-test pass/fail rates, duration stats, last failure timestamp            |
-| **Flaky Candidates**     | `test_execution` + `test_case` (raw, aggregated in Polars) | Tests with both passes and failures, ranked by status-flip count            |
-| **Failure Fingerprints** | `test_execution` (raw, aggregated in Polars)               | Recurring failures grouped by fingerprint, with drill-down to executions    |
-| **Duration Analysis**    | `test_execution` (raw)                                     | Mean, std, min, max, and coefficient of variation per test                  |
-| **Daily Trend**          | `v_daily_status_trend`                                     | Daily pass/fail rate line chart, optionally split by trigger source         |
-| **Failure Details**      | `test_execution` + payload/artifact tables                 | Drill into payloads and artifacts for individual failed executions          |
+| Page                     | Data source                                                | What it shows                                                                                                                                                       |
+| ------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Run Summary**          | `v_run_summary`                                            | KPI cards for the latest run, full run table, stacked bar chart of outcomes                                                                                         |
+| **Test Case Quality**    | `v_test_case_quality`                                      | Per-test pass/fail rates, duration stats, last failure timestamp                                                                                                    |
+| **Flaky Candidates**     | `test_execution` + `test_case` (raw, aggregated in Polars) | Tests with both passes and failures, ranked by status-flip count                                                                                                    |
+| **Failure Fingerprints** | `test_execution` (raw, aggregated in Polars)               | Recurring failures grouped by fingerprint, with drill-down to executions. Vector similarity search will be available once `failure_embedding` values are populated. |
+| **Duration Analysis**    | `test_execution` (raw)                                     | Mean, std, min, max, and coefficient of variation per test                                                                                                          |
+| **Daily Trend**          | `v_daily_status_trend`                                     | Daily pass/fail rate line chart, optionally split by trigger source                                                                                                 |
+| **Failure Details**      | `test_execution` + payload/artifact tables                 | Drill into payloads and artifacts for individual failed executions                                                                                                  |
 
 ## Project layout
 
@@ -105,6 +105,25 @@ These properties control the *write* side and are documented in
 | `test.statistics.run.label`      | unset                                   |
 | `test.statistics.artifacts.root` | unset                                   |
 
+## Formatting and linting
+
+The project uses [Ruff](https://docs.astral.sh/ruff/) for formatting (Black-compatible) and linting. Configuration lives
+in `ruff.toml`.
+
+```zsh
+# Auto-format all Python files
+pixi run fmt
+
+# Lint and auto-fix what it can
+pixi run lint
+
+# CI-style check — no mutations, exits non-zero on violations
+pixi run check
+```
+
+Run `pixi run fmt` and `pixi run lint` before committing. Use `pixi run check` in CI to enforce the rules without
+modifying files.
+
 ## Dependencies
 
 Managed by pixi (conda-forge + PyPI):
@@ -117,18 +136,19 @@ Managed by pixi (conda-forge + PyPI):
 | `streamlit` | Web dashboard framework                    |
 | `plotly`    | Interactive charts (bar, line, scatter)    |
 | `watchdog`  | Faster file-change detection for Streamlit |
+| `ruff`      | Code formatter and linter                  |
 
-## pyturso window function limitation
+## pyturso correlated subquery limitation
 
-The `pyturso` embedded engine does **not** support SQL window functions (`LAG`, `ROW_NUMBER`, `RANK`, etc.). The
-database views `v_flaky_candidates` and `v_failure_fingerprints` use these functions and therefore cannot be queried
-directly via `pyturso`.
+The `pyturso` embedded engine does **not** support the correlated subqueries used by the database views
+`v_flaky_candidates` (CTE with correlated subquery) and `v_failure_fingerprints` (correlated scalar subqueries). These
+views therefore cannot be queried directly via `pyturso`.
 
 The corresponding dashboard pages (`flaky_candidates.py` and `failure_fingerprints.py`) work around this by querying the
 raw tables and replicating the view logic in Polars:
 
-- `LAG … PARTITION BY` is replaced by `pl.Expr.shift().over()`.
-- `ROW_NUMBER … WHERE row_num = 1` is replaced by `sort().group_by().first()`.
+- The correlated subquery that finds the previous status is replaced by `pl.Expr.shift().over()`.
+- The correlated scalar subquery that picks the latest exception is replaced by `sort().group_by().first()`.
 
 Other views (`v_run_summary`, `v_test_case_quality`, `v_daily_status_trend`) use only standard aggregation and work fine
 with `pyturso`.

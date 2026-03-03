@@ -5,11 +5,19 @@ occurrence counts, affected test counts, and a representative exception
 message.  The page also offers a drill-down that joins back to the raw
 ``test_execution`` rows for a selected fingerprint.
 
+The fingerprint hash is computed from ``exceptionClass|preferredFrame|message``
+where ``preferredFrame`` uses the format ``ClassName#methodName`` (line numbers
+are omitted so that fingerprints remain stable across refactors).
+
+A nullable ``failure_embedding`` column exists in ``test_execution`` for future
+vector-based similarity search (via ONNX Runtime embeddings and Turso's
+``vector_distance_cos()``).  It is not queried by this page yet.
+
 .. note::
 
-   The database view ``v_failure_fingerprints`` uses the ``ROW_NUMBER``
-   window function, which ``pyturso`` does not support.  This module
-   therefore queries raw tables and replicates the view logic in Polars.
+   The database view ``v_failure_fingerprints`` uses correlated scalar
+   subqueries, which ``pyturso`` does not support.  This module therefore
+   queries raw tables and replicates the view logic in Polars.
 """
 
 import polars as pl
@@ -27,8 +35,8 @@ def _build_fingerprint_frame() -> pl.DataFrame:
     2. Aggregate per fingerprint: occurrence count, affected test count,
        first/last seen timestamps.
     3. Pick the most recent exception class and message per fingerprint
-       (equivalent to the ``ROW_NUMBER … WHERE row_num = 1`` pattern in
-       the original view).
+       using ``sort().group_by().first()`` (replaces the correlated scalar
+       subqueries in the original view).
 
     Returns
     -------
@@ -77,7 +85,9 @@ def _build_fingerprint_frame() -> pl.DataFrame:
     )
 
     result = agg.join(latest, on="failure_fingerprint", how="left").sort(
-        "occurrence_count", "affected_test_count", "last_seen_at",
+        "occurrence_count",
+        "affected_test_count",
+        "last_seen_at",
         descending=[True, True, True],
     )
 

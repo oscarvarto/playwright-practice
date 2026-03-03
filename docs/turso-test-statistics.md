@@ -91,8 +91,10 @@ This design exists to answer questions that basic green/red test output cannot a
   The same idea applies at the individual run level: each run's pass rate is the fraction of its executions that ended
   in PASSED.
 
-  Formally, let $d(e)$ be the UTC day of execution $e$, let $u(e)$ be its source (`local` or `ci`), let $\sigma(e)$ be
-  its final status, and let $\rho(e)$ be its run identifier. The daily pass-rate trend by source is:\
+  Formally, let $d(e)$ be the UTC day of execution $e$, let $u(e)$ be its source (one of `local`, `github-actions`,
+  `gitlab-ci`, `jenkins`, `azure-pipelines`, `circleci`, or `generic-ci` as detected by
+  `TestRunContextCollector.detectCiProvider()`), let $\sigma(e)$ be its final status, and let $\rho(e)$ be its run
+  identifier. The daily pass-rate trend by source is:\
   $$q_{t,s} = \frac{\left| \{ e \in E : d(e) = t \wedge u(e) = s \wedge \sigma(e) = \mathrm{PASSED} \} \right|}{\left| \{ e \in E : d(e) = t \wedge u(e) = s \} \right|}$$
 
   At the run level, the same idea becomes:\
@@ -190,9 +192,10 @@ development is to read from a copied snapshot of `test-statistics.db`.
 
 ### Which tests are becoming flaky?
 
-> **pyturso limitation:** The `v_flaky_candidates` view uses the `LAG` window function, which `pyturso` does not
-> support. The dashboard therefore queries raw tables and replicates the view logic in Polars using
-> `pl.Expr.shift().over()`. See `python-analysis/pages_impl/flaky_candidates.py` for the full implementation.
+> **pyturso limitation:** The `v_flaky_candidates` view uses a CTE with a correlated subquery to find each
+> execution's immediately preceding status, which `pyturso` does not support. The dashboard therefore queries raw
+> tables and replicates the view logic in Polars using `pl.Expr.shift().over()`. See
+> `python-analysis/pages_impl/flaky_candidates.py` for the full implementation.
 
 The conceptual approach is: fetch every execution ordered chronologically per test case, compute status flips with
 `shift()`, aggregate, and filter to tests with both passes and failures:
@@ -239,10 +242,10 @@ st.dataframe(flaky_candidates, width="stretch")
 
 ### Which failures are recurring with the same fingerprint?
 
-> **pyturso limitation:** The `v_failure_fingerprints` view uses the `ROW_NUMBER` window function, which `pyturso` does
-> not support. The dashboard therefore queries the raw `test_execution` table and replicates the view logic in Polars
-> using `sort().group_by().first()`. See `python-analysis/pages_impl/failure_fingerprints.py` for the full
-> implementation.
+> **pyturso limitation:** The `v_failure_fingerprints` view uses correlated scalar subqueries to pick the most recent
+> exception details per fingerprint, which `pyturso` does not support. The dashboard therefore queries the raw
+> `test_execution` table and replicates the view logic in Polars using `sort().group_by().first()`. See
+> `python-analysis/pages_impl/failure_fingerprints.py` for the full implementation.
 
 The conceptual approach is: fetch all executions with a non-null fingerprint, aggregate per fingerprint, and pick the
 most recent exception details:
@@ -609,6 +612,11 @@ erDiagram
         string ci_provider
         string ci_build_id
         string ci_job_name
+        string host_name
+        string os_name
+        string os_arch
+        string jvm_vendor
+        string jvm_version
         string browser_name
         string browser_channel
         int headless
@@ -640,8 +648,12 @@ erDiagram
         string disabled_reason
         string exception_class
         string exception_message
+        string exception_stacktrace
         string failure_fingerprint
+        blob failure_embedding
+        string embedding_model
         string thread_name
+        string created_at_utc
     }
 
     TEST_EXECUTION_PAYLOAD {
@@ -651,6 +663,7 @@ erDiagram
         string payload_name
         string content_type
         string payload_text
+        string created_at_utc
     }
 
     TEST_EXECUTION_ARTIFACT {
@@ -659,6 +672,7 @@ erDiagram
         string artifact_kind
         string artifact_path
         string description
+        string created_at_utc
     }
 ```
 
@@ -703,7 +717,7 @@ Reserved canonical statuses already exist in the schema for future expansion:
 Each failed or aborted execution can store a `failure_fingerprint`, computed from:
 
 - exception class
-- preferred stack-frame location
+- preferred stack-frame location (format: `ClassName#methodName`)
 - normalized first-line exception message
 
 The preferred frame selection favors project code under `oscarvarto.mx` and only falls back to the first non-framework
@@ -714,6 +728,35 @@ This allows queries such as:
 - "Show me all recurring failures with the same root cause"
 - "Which tests are failing for the same reason?"
 - "When did this failure fingerprint first appear?"
+
+### Why line numbers are omitted
+
+The preferred frame format is `ClassName#methodName` — line numbers are intentionally excluded. This makes the
+fingerprint stable across refactors that shift line numbers (adding or removing lines above the failure site). Two
+failures in the same method with the same exception and message are almost always the same root cause, so the loss of
+line-level precision is a worthwhile trade-off for fingerprint stability across commits.
+
+## Future: vector similarity search
+
+The `test_execution` table includes two nullable columns reserved for future vector-based similarity search:
+
+| Column              | Type   | Purpose                                                                 |
+| ------------------- | ------ | ----------------------------------------------------------------------- |
+| `failure_embedding` | `BLOB` | Vector embedding of the failure signature (e.g. via Turso `vector32()`) |
+| `embedding_model`   | `TEXT` | Identifies the model that produced the embedding                        |
+
+Both columns are currently unpopulated. The planned approach:
+
+1. **At test-report time**, embed the concatenation of `exceptionClass + normalizedMessage + preferredFrame` using a
+   local ONNX Runtime model (e.g. `all-MiniLM-L6-v2`).
+2. **Store the resulting vector** in `failure_embedding` and record the model identifier in `embedding_model` (e.g.
+   `"onnx:all-MiniLM-L6-v2"`), so stale embeddings can be detected after a model upgrade.
+3. **In the Python dashboard**, use Turso's `vector_distance_cos()` function to find semantically similar failures
+   across different fingerprints — surfacing failures that share the same root cause even when their deterministic
+   hashes differ (e.g. slightly different error messages or different call sites).
+
+This complements — but does not replace — the deterministic SHA-256 fingerprint. The hash provides exact grouping; the
+embedding enables fuzzy similarity search.
 
 ## Explicit input and artifact capture
 
@@ -743,19 +786,25 @@ The dashboard is expected to read mostly from SQL views rather than raw tables.
 | `v_failure_fingerprints` | Grouped recurring failures                         |
 | `v_daily_status_trend`   | Day-level trend metrics                            |
 
-## Window function support across access paths
+The `v_test_case_latest` view uses a `NOT EXISTS` anti-join with a 3-level tiebreaker (`finished_at_utc` >
+`attempt_index` > `execution_id`) rather than a window function like `ROW_NUMBER`. This is a deliberate choice: it
+avoids window function syntax that `pyturso` cannot execute, keeping the view queryable from all three access paths
+(JDBC, `tursodb`, and `pyturso`).
 
-The SQL views in the database use standard window functions (`LAG`, `ROW_NUMBER`) that work correctly with:
+## Correlated subquery support across access paths
+
+The SQL views `v_flaky_candidates` and `v_failure_fingerprints` use correlated subqueries (not window functions) to
+avoid portability issues. These queries work correctly with:
 
 - the `tursodb` CLI shell
 - JDBC (JVM write path)
 
-However, the `pyturso` Python driver **does not support** these window functions. This affects two views:
+However, the `pyturso` Python driver **does not support** these correlated subqueries. This affects two views:
 
-| View                     | Window function | pyturso workaround                                          |
-| ------------------------ | --------------- | ----------------------------------------------------------- |
-| `v_flaky_candidates`     | `LAG`           | `pl.Expr.shift().over()` in `flaky_candidates.py`           |
-| `v_failure_fingerprints` | `ROW_NUMBER`    | `sort().group_by().first()` in `failure_fingerprints.py`    |
+| View                     | SQL technique                | pyturso workaround                                       |
+| ------------------------ | ---------------------------- | -------------------------------------------------------- |
+| `v_flaky_candidates`     | CTE + correlated subquery    | `pl.Expr.shift().over()` in `flaky_candidates.py`        |
+| `v_failure_fingerprints` | Correlated scalar subqueries | `sort().group_by().first()` in `failure_fingerprints.py` |
 
 The remaining views (`v_run_summary`, `v_test_case_quality`, `v_test_case_latest`, `v_daily_status_trend`) use only
 standard aggregation and work fine with all three access paths.

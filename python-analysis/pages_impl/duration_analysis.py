@@ -6,8 +6,8 @@ A high mean identifies inherently slow tests; a high coefficient of
 variation (CV) highlights tests whose runtime is unstable across runs.
 """
 
-import polars as pl
 import plotly.express as px
+import polars as pl
 import streamlit as st
 
 from db import query_frame

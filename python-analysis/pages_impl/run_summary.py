@@ -6,8 +6,8 @@ outcome distribution across runs, and a pie chart of the latest run's
 status breakdown.
 """
 
-import polars as pl
 import plotly.express as px
+import polars as pl
 import streamlit as st
 
 from db import query_frame
@@ -106,15 +106,17 @@ def render() -> None:
 
     # Pie chart of latest run status breakdown
     st.subheader("Latest run status breakdown")
-    pie_df = pl.DataFrame({
-        "status": ["Passed", "Failed", "Aborted", "Disabled"],
-        "count": [
-            latest["passed_count"],
-            latest["failed_count"],
-            latest["aborted_count"],
-            latest["disabled_count"],
-        ],
-    }).filter(pl.col("count") > 0)
+    pie_df = pl.DataFrame(
+        {
+            "status": ["Passed", "Failed", "Aborted", "Disabled"],
+            "count": [
+                latest["passed_count"],
+                latest["failed_count"],
+                latest["aborted_count"],
+                latest["disabled_count"],
+            ],
+        }
+    ).filter(pl.col("count") > 0)
 
     pie_fig = px.pie(
         pie_df.to_pandas(),
