@@ -16,12 +16,12 @@ This design exists to answer questions that basic green/red test output cannot a
   Alongside the flip count, the historical pass rate tells you what fraction of all runs ended in success. A test with a
   50 % pass rate and many flips is a strong flaky candidate.
 
-  Formally, for a logical test case $c$ with ordered executions $e_1, \dots, e_n$ from `test_execution`, define a binary
+  Formally, for a logical test case $c$ with ordered executions $e_{1}, \dots, e_{n}$ from `test_execution`, define a binary
   outcome sequence $x_i \in \{0,1\}$ where $x_i = 1$ for `PASSED` and $x_i = 0$ for `FAILED` or `ABORTED`. The
   instability score is the number of status flips:\
   $$F_c = \sum_{i=2}^{n} \mathbf{1}[x_i \ne x_{i-1}]$$
 
-  and the historical pass rate is $`\bar{p}_c = \frac{1}{n} \sum_{i=1}^{n} x_i`$.
+  and the historical pass rate is $\bar{p}_c = \frac{1}{n} \sum_{i=1}^{n} x_i$
 
   Tests with both passes and failures and a growing $F_c$ are natural flaky candidates. This is the rationale behind
   `v_flaky_candidates`, built from `test_execution` and keyed by `test_case_id`.
@@ -590,7 +590,7 @@ The schema is split into:
 - **attachments**: `test_execution_payload`, `test_execution_artifact`
 - **migration bookkeeping**: Flyway's `flyway_schema_history`
 
-```mermaid
+```mermaid 35
 erDiagram
     TEST_RUN ||--o{ TEST_EXECUTION : contains
     TEST_CASE ||--o{ TEST_EXECUTION : executed_as
@@ -824,7 +824,7 @@ standard aggregation and work fine with all three access paths.
 
 The same database is designed to be used through three different access paths:
 
-```mermaid
+```mermaid 70
 flowchart TD
     A["JUnit 5 tests"] -->|"JDBC writes"| B["test-statistics.db"]
     C["Streamlit app"] -->|"pyturso reads"| B
@@ -901,7 +901,7 @@ For the full Streamlit implementation, see [`python-analysis/README.md`](../pyth
 
 ## Sequence of events during a normal test
 
-```mermaid
+```mermaid 30
 flowchart TD
     A["JUnit launcher starts"] --> B["Create or reuse root SessionResource"]
     B --> C["Migrate schema"]

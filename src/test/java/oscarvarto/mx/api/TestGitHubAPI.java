@@ -44,8 +44,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /// When enabled, provide credentials through either environment variables or the
 /// configured secrets provider mappings:
 ///
-/// - `GITHUB_USER` &mdash; your GitHub username
-/// - `GITHUB_API_TOKEN` &mdash; a personal access token with `repo` scope
+/// - `GITHUB_USER` -- your GitHub username
+/// - `GITHUB_API_TOKEN` -- a personal access token with `repo` scope
 ///
 /// @see <a href="https://playwright.dev/java/docs/api-testing">Playwright: API testing</a>
 @UsePlaywright(TestGitHubAPI.GitHubApiOptions.class)
